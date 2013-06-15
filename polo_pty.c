@@ -55,11 +55,19 @@ int main(int argc,char** argv)
         unsigned char a = read_buffer[1];
         unsigned char b = read_buffer[2];
         unsigned char sum = a + b;
+        useconds_t delay = (float)(rand() % 4000);  // ms
         printf("Received %d + %d = %d.\n", a, b, sum);
-        if ((float)(rand() % 100) <= success_rate)
+
+        if ((float)(rand() % 100) <= success_rate) {
+          // Success
           polo_str[1] = sum;
-        else
+        } else {
+          // Received invalid bits
           polo_str[1] = sum + 1;
+        }
+
+        printf("Delay %d\n", delay);
+        usleep(delay);
         write(tty_fd, polo_str, 3);
       }
     } else {
