@@ -15,11 +15,11 @@ The sender, Marco, send packets of the following format.
 The receiver, Polo, responds with the following packet format. All arithmatic
 is unsigned.
 
-| Index |  Data               |
-|:-----:|---------------------|
-|   0   |  's'                |
-|   1   | marco[1] + marco[2] |
-|   2   |  'e'                |
+| Index |  Data                   |
+|:-----:|-------------------------|
+|   0   |  's'                    |
+|   1   | marco\[1\] + marco\[2\] |
+|   2   |  'e'                    |
 
 Polo verifies that the response arrives within 300ms, and notes its correctness
 and latency. Polo outputs the average latency (not yet implemented) and success
