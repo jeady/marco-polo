@@ -5,15 +5,24 @@
 #include <string.h>
 #include <sys/epoll.h>
 #include <sys/time.h>
+#include <sys/timerfd.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
 
-unsigned char transmit_marco(int tty_fd, struct timeval* transmit_time) {
+#define kResponseTimeoutMS 300
+
+unsigned char transmit_marco(
+    int tty_fd,
+    struct timeval* transmit_time,
+    int timerfd) {
   unsigned char marco_str[] = "S__E";
   unsigned char a = (unsigned char)rand();
   unsigned char b = (unsigned char)rand();
   unsigned char sum = a + b;
+  struct itimerspec tv = {0};
+
+  tv.it_value.tv_nsec = kResponseTimeoutMS * 1000000;
 
   marco_str[1] = a;
   marco_str[2] = b;
@@ -21,10 +30,16 @@ unsigned char transmit_marco(int tty_fd, struct timeval* transmit_time) {
   write(tty_fd, marco_str, 4);
   if (transmit_time != NULL)
     gettimeofday(transmit_time, NULL);
+  timerfd_settime(timerfd, 0, &tv, NULL);
 
   printf("Transmitted %d + %d = %d.\n", a, b, sum);
 
   return marco_str[1] + marco_str[2];
+}
+
+void disarm_timerfd(int fd) {
+  struct itimerspec tv = {0};
+  timerfd_settime(fd, 0, &tv, NULL);
 }
 
 int main(int argc,char** argv)
@@ -40,6 +55,8 @@ int main(int argc,char** argv)
   unsigned success = 0;
   struct timeval transmit_time;
   double total_latency = 0;
+  int timer_fd;
+  struct epoll_event timer_event;
 
   if (argc < 2) {
     printf("Usage: %s /dev/serial-device\n", argv[0]);
@@ -73,7 +90,15 @@ int main(int argc,char** argv)
     return 1;
   }
 
-  marco_sum = transmit_marco(tty_fd, &transmit_time);
+  timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+  timer_event.events = EPOLLIN;
+  timer_event.data.fd = timer_fd;
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, timer_fd, &timer_event)) {
+    fprintf(stderr, "Could not add timer_fd to epoll: %s\n", strerror(errno));
+    return 1;
+  }
+
+  marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
   while (epoll_wait(epfd, &event, 1, -1) == 1) {
     if (event.events & EPOLLIN && event.data.fd == tty_fd) {
       struct timeval receive_time;
@@ -112,9 +137,30 @@ int main(int argc,char** argv)
               total_latency / (float)success);
         }
         sleep(1);
-        marco_sum = transmit_marco(tty_fd, &transmit_time);
+        marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
         sent++;
       }
+    } else if (event.events & EPOLLIN && event.data.fd == timer_fd) {
+      uint64_t expirations;
+      int r = read(timer_fd, &expirations, sizeof(expirations));
+      if (r != sizeof(expirations)) {
+        fprintf(stderr, "Unexpected number of bytes from timerfd: %d.\n", r);
+        return 1;
+      } else if (expirations != 1) {
+        fprintf(stderr, "Timerfd expired too many times: %ld\n", expirations);
+        return 1;
+      }
+
+      printf("Timeout, resending.\n"
+             "%.2f%% success rate (%d / %d), "
+             "avg. latency %.2fms\n",
+             (float)success / (float)sent * 100.,
+             success,
+             sent,
+             total_latency / (float)success);
+      sleep(1);
+      marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
+      sent++;
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);
     }

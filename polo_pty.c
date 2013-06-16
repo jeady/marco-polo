@@ -20,7 +20,7 @@ int main(int argc,char** argv)
   struct epoll_event tio_event;
   struct epoll_event event;
   unsigned char polo_str[] = "s_e";
-  float success_rate = 99.;  // From 0 to 100.
+  float success_rate = 50.;  // From 0 to 100.
 
   srand(time(NULL));
 
@@ -61,14 +61,22 @@ int main(int argc,char** argv)
         if ((float)(rand() % 100) <= success_rate) {
           // Success
           polo_str[1] = sum;
+          write(tty_fd, polo_str, 3);
         } else {
-          // Received invalid bits
-          polo_str[1] = sum + 1;
+          // Failure, pick whether to transmit a bad response or no response.
+          if (rand() % 2) {
+            // Respond with invalid bits
+            printf("Sending back corrupted data.\n");
+            polo_str[1] = sum + 1;
+            write(tty_fd, polo_str, 3);
+          } else {
+            // No response.
+            printf("Not responding.\n");
+          }
         }
 
-        printf("Delay %d\n", delay);
+        printf("Delay %dms\n", delay);
         usleep(delay);
-        write(tty_fd, polo_str, 3);
       }
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);
