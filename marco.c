@@ -1,5 +1,7 @@
 #include <errno.h>
 #include <fcntl.h>
+#include <stdarg.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,7 +12,18 @@
 #include <time.h>
 #include <unistd.h>
 
-#define kResponseTimeoutMS 300
+int gResponseTimeoutMS = 300;
+int gTransmitDelayMS = 1000;
+bool gDebug = false;
+
+void debug(const char *fmt, ...)
+{
+  va_list va;
+  va_start(va, fmt);
+  if (gDebug)
+    vprintf(fmt, va);
+  va_end(va);
+}
 
 unsigned char transmit_marco(
     int tty_fd,
@@ -22,7 +35,7 @@ unsigned char transmit_marco(
   unsigned char sum = a + b;
   struct itimerspec tv = {0};
 
-  tv.it_value.tv_nsec = kResponseTimeoutMS * 1000000;
+  tv.it_value.tv_nsec = gResponseTimeoutMS * 1000000;
 
   marco_str[1] = a;
   marco_str[2] = b;
@@ -32,7 +45,7 @@ unsigned char transmit_marco(
     gettimeofday(transmit_time, NULL);
   timerfd_settime(timerfd, 0, &tv, NULL);
 
-  printf("Transmitted %d + %d = %d.\n", a, b, sum);
+  debug("Transmitted %d + %d = %d.\n", a, b, sum);
 
   return marco_str[1] + marco_str[2];
 }
@@ -57,10 +70,22 @@ int main(int argc,char** argv)
   double total_latency = 0;
   int timer_fd;
   struct epoll_event timer_event;
+  int opt;
 
   if (argc < 2) {
-    printf("Usage: %s /dev/serial-device\n", argv[0]);
+    printf("Usage: %s [-v] /dev/serial-device\n", argv[0]);
     return 0;
+  }
+
+  while ((opt = getopt(argc, argv, "nt:")) != -1) {
+    switch (opt) {
+    case 'v':
+      gDebug = 1;
+      break;
+    default:
+      fprintf(stderr, "Usage: %s [-v] /dev/serial-device\n", argv[0]);
+      return 1;
+    }
   }
 
   srand(time(NULL));
@@ -136,7 +161,7 @@ int main(int argc,char** argv)
               sent,
               total_latency / (float)success);
         }
-        sleep(1);
+        usleep(gTransmitDelayMS * 1000);
         marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
         sent++;
       }
@@ -151,14 +176,14 @@ int main(int argc,char** argv)
         return 1;
       }
 
-      printf("Timeout, resending.\n"
+      printf("Timeout, resending. "
              "%.2f%% success rate (%d / %d), "
              "avg. latency %.2fms\n",
              (float)success / (float)sent * 100.,
              success,
              sent,
              total_latency / (float)success);
-      sleep(1);
+      usleep(gTransmitDelayMS * 1000);
       marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
       sent++;
     } else {
@@ -171,7 +196,7 @@ int main(int argc,char** argv)
     }
   }
 
-  sleep(1);
+  usleep(gTransmitDelayMS * 1000);
   close(tty_fd);
   return 0;
 }
