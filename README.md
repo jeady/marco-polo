@@ -22,26 +22,22 @@ is unsigned.
 |   2   |  'e'                    |
 
 Polo verifies that the response arrives within 300ms, and notes its correctness
-and latency. Polo outputs the average latency (not yet implemented) and success
-rate.
+and latency. Polo outputs the average latency and success rate.
 
 ## Provided Programs
 ### Marco
-Usage: ./marco [/dev/serial...]
+Usage: ./marco [-v] /dev/serial-device
 Connects to the given serial port and tests the connectivity, assuming polo
 is running on the other end.
 
 ```
-jeady@olympus:/mnt/hgfs/shared/marco_polo$ ./marco /dev/pts/11
-Transmitted 47 + 247 = 38.
-Success! 100.00% success rate (1 / 1)
-Transmitted 161 + 225 = 130.
-Success! 100.00% success rate (2 / 2)
-Transmitted 201 + 130 = 75.
-Success! 100.00% success rate (3 / 3)
-Transmitted 207 + 78 = 29.
-Success! 100.00% success rate (4 / 4)
-Transmitted 32 + 176 = 208.
+jeady@olympus:/mnt/hgfs/shared/marco_polo$ ./marco /dev/pts/12
+Incorrect sum. 0.00% success rate (0 / 1), avg. latency -nanms
+Incorrect sum. 0.00% success rate (0 / 2), avg. latency -nanms
+Success! 33.33% success rate (1 / 3), avg. latency 0.36ms
+Timeout, resending. 25.00% success rate (1 / 4), avg. latency 0.36ms
+Success! 40.00% success rate (2 / 5), avg. latency 0.29ms
+Success! 50.00% success rate (3 / 6), avg. latency 0.25ms
 ```
 
 ### Polo PTY
@@ -53,10 +49,21 @@ the terminal device to be used with marco on startup.
 ```
 jeady@olympus:/mnt/hgfs/shared/marco_polo$ ./polo_pty 
 PTY: /dev/pts/12
-Received 114 + 112 = 226.
-Received 161 + 187 = 92.
-Received 194 + 229 = 167.
-Received 196 + 202 = 142.
+Received 221 + 51 = 16.
+Sending back corrupted data.
+Delay 1698ms
+Received 51 + 1 = 52.
+Sending back corrupted data.
+Delay 2462ms
+Received 202 + 232 = 178.
+Delay 2470ms
+Received 147 + 46 = 193.
+Not responding.
+Delay 1176ms
+Received 86 + 66 = 152.
+Delay 3136ms
+Received 142 + 163 = 49.
+Delay 3546ms
 ```
 
 [1]: https://www.sparkfun.com/products/8946
