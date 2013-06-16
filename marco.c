@@ -41,6 +41,11 @@ int main(int argc,char** argv)
   struct timeval transmit_time;
   double total_latency = 0;
 
+  if (argc < 2) {
+    printf("Usage: %s /dev/serial-device\n", argv[0]);
+    return 0;
+  }
+
   srand(time(NULL));
 
   memset(&tio,0,sizeof(tio));
@@ -52,6 +57,10 @@ int main(int argc,char** argv)
   tio.c_cc[VTIME] = 5;
 
   tty_fd = open(argv[1], O_RDWR | O_NONBLOCK);
+  if (tty_fd == -1) {
+    fprintf(stderr, "Could not open serial device %s\n", argv[1]);
+  }
+
   cfsetospeed(&tio, B1200);
   cfsetispeed(&tio, B1200);
   tcsetattr(tty_fd, TCSANOW, &tio);
