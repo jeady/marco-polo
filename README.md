@@ -26,7 +26,8 @@ and latency. Polo outputs the average latency and success rate.
 
 ## Provided Programs
 ### Marco
-Usage: ./marco [-v] /dev/serial-device
+Usage: `./marco [-v] /dev/serial-device`
+
 Connects to the given serial port and tests the connectivity, assuming polo
 is running on the other end.
 
@@ -41,8 +42,9 @@ Success! 50.00% success rate (3 / 6), avg. latency 0.25ms
 ```
 
 ### Polo PTY
-Usage: ./polo_pty
-Test program. When run, will open a pseudo-terminal which can be used to test
+Usage: `./polo_pty`
+
+Used to test marco. When run, will open a pseudo-terminal which can be used to test
 marco with another machine on the other end of the serial connection. Outputs
 the terminal device to be used with marco on startup.
 
