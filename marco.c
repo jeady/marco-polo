@@ -134,13 +134,14 @@ int main(int argc,char** argv)
   struct epoll_event timer_event;
   int opt;
   char* device_name;
+  int count = 100;
 
   if (argc < 2) {
     printf("Usage: %s [-v] /dev/serial-device\n", argv[0]);
     return 0;
   }
 
-  while ((opt = getopt(argc, argv, "vs:i:t:d:")) != -1) {
+  while ((opt = getopt(argc, argv, "vs:i:t:d:c:")) != -1) {
     int intval;
 
     switch (opt) {
@@ -166,6 +167,11 @@ int main(int argc,char** argv)
       if (intval != 0)
         gTransmitDelayMS = intval;
       break;
+    case 'c':
+      intval = atoi(optarg);
+      if (intval != 0)
+        count = intval;
+      break;
     default:
       fprintf(stderr, "Usage: %s [-v] /dev/serial-device\n", argv[0]);
       return 1;
@@ -173,6 +179,7 @@ int main(int argc,char** argv)
   }
 
   printf("Device: %s\n", device_name);
+  printf("Count: %d\n", count);
   printf("Debug: %s\n", (gDebug ? "true" : "false"));
   printf("Delay: %dms\n", gTransmitDelayMS);
   printf("Idle: %dms\n", gIdleDelayMS);
@@ -212,6 +219,9 @@ int main(int argc,char** argv)
 
   schedule_transmit(transmit_timer_fd);
   while (epoll_wait(epfd, &event, 1, -1) == 1) {
+    if (success + dropped + corrupt >= count)
+      break;
+
     if (event.events & EPOLLIN && event.data.fd == tty_fd) {
       struct timeval receive_time;
       gettimeofday(&receive_time, NULL);
