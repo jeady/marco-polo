@@ -28,13 +28,15 @@ latency and success rate.
 ## Provided Programs
 ### Marco
 Usage:
-`./marco
+```
+./marco
   [-v]
   [-t timeout_ms=300]
   [-i idle_delay_ms=2]
   [-d transmit_delay_ms=1000]
   [-c count=100]
-  -s /dev/serial-device`
+  -s /dev/serial-device
+```
 
 Connects to the given serial port and tests the connectivity, assuming polo
 is running on the other end.
