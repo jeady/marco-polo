@@ -25,6 +25,51 @@ void debug(const char *fmt, ...)
   va_end(va);
 }
 
+void disarm_timerfd(int fd) {
+  struct itimerspec tv = {0};
+  timerfd_settime(fd, 0, &tv, NULL);
+}
+
+void set_timerfd(int fd, int timeout_ms) {
+  struct itimerspec tv = {0};
+  int s = timeout_ms / 1000;
+  int ms = timeout_ms % 1000;
+  disarm_timerfd(fd);
+
+  tv.it_value.tv_sec = s;
+  tv.it_value.tv_nsec = ms * 1000000;
+  timerfd_settime(fd, 0, &tv, NULL);
+}
+
+int add_timer_to_epoll(int epfd) {
+  struct epoll_event event;
+  int fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+  event.events = EPOLLIN;
+  event.data.fd = fd;
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event)) {
+    fprintf(
+        stderr,
+        "Could not add timerfd to epoll: %s\n",
+        strerror(errno));
+    exit(1);
+  }
+
+  return fd;
+}
+
+void verify_timerfd_fire(struct epoll_event e) {
+  uint64_t expirations;
+  int r = read(e.data.fd, &expirations, sizeof(expirations));
+
+  if (r != sizeof(expirations)) {
+    fprintf(stderr, "Unexpected number of bytes from timerfd: %d.\n", r);
+    exit(1);
+  } else if (expirations != 1) {
+    fprintf(stderr, "Timerfd expired too many times: %ld\n", expirations);
+    exit(1);
+  }
+}
+
 unsigned char transmit_marco(
     int tty_fd,
     struct timeval* transmit_time,
@@ -33,9 +78,6 @@ unsigned char transmit_marco(
   unsigned char a = (unsigned char)rand();
   unsigned char b = (unsigned char)rand();
   unsigned char sum = a + b;
-  struct itimerspec tv = {0};
-
-  tv.it_value.tv_nsec = gResponseTimeoutMS * 1000000;
 
   marco_str[1] = a;
   marco_str[2] = b;
@@ -43,23 +85,15 @@ unsigned char transmit_marco(
   write(tty_fd, marco_str, 4);
   if (transmit_time != NULL)
     gettimeofday(transmit_time, NULL);
-  timerfd_settime(timerfd, 0, &tv, NULL);
+  set_timerfd(timerfd, gResponseTimeoutMS);
 
   debug("Transmitted %d + %d = %d.\n", a, b, sum);
 
   return marco_str[1] + marco_str[2];
 }
 
-void disarm_timerfd(int fd) {
-  struct itimerspec tv = {0};
-  timerfd_settime(fd, 0, &tv, NULL);
-}
-
-void schedule_next_transmit(int fd) {
-  struct itimerspec tv = {0};
-
-  tv.it_value.tv_nsec = gTransmitDelayMS * 1000000;
-  timerfd_settime(fd, 0, &tv, NULL);
+void schedule_transmit(int fd) {
+  set_timerfd(fd, gTransmitDelayMS);
 }
 
 void print_stats(int success, int dropped, int corrupt, float latency) {
@@ -147,18 +181,11 @@ int main(int argc,char** argv)
     return 1;
   }
 
-  timeout_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
-  timer_event.events = EPOLLIN;
-  timer_event.data.fd = timeout_timer_fd;
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, timeout_timer_fd, &timer_event)) {
-    fprintf(
-        stderr,
-        "Could not add timeout_timer_fd to epoll: %s\n",
-        strerror(errno));
-    return 1;
-  }
+  timeout_timer_fd = add_timer_to_epoll(epfd);
+  transmit_timer_fd = add_timer_to_epoll(epfd);
+  idle_timer_fd = add_timer_to_epoll(epfd);
 
-  marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
+  schedule_transmit(transmit_timer_fd);
   while (epoll_wait(epfd, &event, 1, -1) == 1) {
     if (event.events & EPOLLIN && event.data.fd == tty_fd) {
       struct timeval receive_time;
@@ -171,6 +198,7 @@ int main(int argc,char** argv)
         if (read_buffer[1] == marco_sum) {
           struct timeval elapsed_time;
           float elapsed;
+          disarm_timerfd(timeout_timer_fd);
           success++;
 
           timersub(&receive_time, &transmit_time, &elapsed_time);
@@ -181,31 +209,26 @@ int main(int argc,char** argv)
           debug("Success! %.4fms elapsed.\n", elapsed);
           print_stats(success, dropped, corrupt, total_latency);
         } else {
+          disarm_timerfd(timeout_timer_fd);
           corrupt++;
 
           debug("Corrupt.\n");
           print_stats(success, dropped, corrupt, total_latency);
         }
-        usleep(gTransmitDelayMS * 1000);
-        marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
+        schedule_transmit(transmit_timer_fd);
       }
     } else if (event.events & EPOLLIN && event.data.fd == timeout_timer_fd) {
-      uint64_t expirations;
-      int r = read(timeout_timer_fd, &expirations, sizeof(expirations));
+      verify_timerfd_fire(event);
       dropped++;
-
-      if (r != sizeof(expirations)) {
-        fprintf(stderr, "Unexpected number of bytes from timerfd: %d.\n", r);
-        return 1;
-      } else if (expirations != 1) {
-        fprintf(stderr, "Timerfd expired too many times: %ld\n", expirations);
-        return 1;
-      }
 
       debug("Timeout.\n");
       print_stats(success, dropped, corrupt, total_latency);
-      usleep(gTransmitDelayMS * 1000);
+      schedule_transmit(transmit_timer_fd);
+    } else if (event.events & EPOLLIN && event.data.fd == transmit_timer_fd) {
+      verify_timerfd_fire(event);
       marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
+    } else if (event.events & EPOLLIN && event.data.fd == idle_timer_fd) {
+      verify_timerfd_fire(event);
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);
     }
@@ -216,7 +239,6 @@ int main(int argc,char** argv)
     }
   }
 
-  usleep(gTransmitDelayMS * 1000);
   close(tty_fd);
   return 0;
 }
