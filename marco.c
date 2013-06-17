@@ -140,20 +140,44 @@ int main(int argc,char** argv)
     return 0;
   }
 
-  while ((opt = getopt(argc, argv, "vd:")) != -1) {
+  while ((opt = getopt(argc, argv, "vs:i:t:d:")) != -1) {
+    int intval;
+
     switch (opt) {
     case 'v':
       gDebug = 1;
       break;
-    case 'd':
+    case 's':
       device_name = malloc(strlen(optarg) + 1);
       strncpy(device_name, optarg, strlen(optarg) + 1);
+      break;
+    case 'i':
+      intval = atoi(optarg);
+      if (intval != 0)
+        gIdleDelayMS = intval;
+      break;
+    case 't':
+      intval = atoi(optarg);
+      if (intval != 0)
+        gResponseTimeoutMS = intval;
+      break;
+    case 'd':
+      intval = atoi(optarg);
+      if (intval != 0)
+        gTransmitDelayMS = intval;
       break;
     default:
       fprintf(stderr, "Usage: %s [-v] /dev/serial-device\n", argv[0]);
       return 1;
     }
   }
+
+  printf("Device: %s\n", device_name);
+  printf("Debug: %s\n", (gDebug ? "true" : "false"));
+  printf("Delay: %dms\n", gTransmitDelayMS);
+  printf("Idle: %dms\n", gIdleDelayMS);
+  printf("Timeout: %dms\n", gResponseTimeoutMS);
+  printf("\n");
 
   srand(time(NULL));
 
