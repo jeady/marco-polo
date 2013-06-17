@@ -14,6 +14,7 @@
 
 int gResponseTimeoutMS = 300;
 int gTransmitDelayMS = 1000;
+int gIdleDelayMS = 2;
 bool gDebug = false;
 
 void debug(const char *fmt, ...)
@@ -228,7 +229,9 @@ int main(int argc,char** argv)
       verify_timerfd_fire(event);
       marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
     } else if (event.events & EPOLLIN && event.data.fd == idle_timer_fd) {
+      char* idle_str = "UUUU";
       verify_timerfd_fire(event);
+      write(tty_fd, idle_str, strlen(idle_str));
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);
     }
@@ -237,6 +240,8 @@ int main(int argc,char** argv)
       fprintf(stderr, "Shutting down.\n");
       break;
     }
+
+    set_timerfd(idle_timer_fd, gIdleDelayMS);
   }
 
   close(tty_fd);
