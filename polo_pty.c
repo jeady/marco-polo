@@ -55,13 +55,15 @@ int main(int argc,char** argv)
         unsigned char a = read_buffer[1];
         unsigned char b = read_buffer[2];
         unsigned char sum = a + b;
-        useconds_t delay = (float)(rand() % 4000);  // ms
+        useconds_t delay = (float)(rand() % 100);  // ms
+        usleep(delay * 1000);
         printf("Received %d + %d = %d.\n", a, b, sum);
 
         if ((float)(rand() % 100) <= success_rate) {
           // Success
           polo_str[1] = sum;
           write(tty_fd, polo_str, 3);
+          printf("Delayed %dms\n", delay);
         } else {
           // Failure, pick whether to transmit a bad response or no response.
           if (rand() % 2) {
@@ -74,9 +76,6 @@ int main(int argc,char** argv)
             printf("Not responding.\n");
           }
         }
-
-        printf("Delay %dms\n", delay);
-        usleep(delay);
       }
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);

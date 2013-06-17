@@ -55,6 +55,30 @@ void disarm_timerfd(int fd) {
   timerfd_settime(fd, 0, &tv, NULL);
 }
 
+void schedule_next_transmit(int fd) {
+  struct itimerspec tv = {0};
+
+  tv.it_value.tv_nsec = gTransmitDelayMS * 1000000;
+  timerfd_settime(fd, 0, &tv, NULL);
+}
+
+void print_stats(int success, int dropped, int corrupt, float latency) {
+  int sent = success + dropped + corrupt;
+
+  printf(
+      "%.2f%% success rate (%d / %d) "
+      "%.2f%% drop rate (%d / %d) "
+      "%.2f%% corrupt rate (%d / %d) "
+      "avg. latency %.2fms\n",
+      (float)success / (float)sent * 100.,
+      success, sent,
+      (float)dropped / (float)sent * 100.,
+      dropped, sent,
+      (float)corrupt / (float)sent * 100.,
+      corrupt, sent,
+      latency / (float)success);
+}
+
 int main(int argc,char** argv)
 {
   struct termios tio;
@@ -64,23 +88,31 @@ int main(int argc,char** argv)
   struct epoll_event tio_event;
   struct epoll_event event;
   unsigned char marco_sum;
-  unsigned sent = 1;
   unsigned success = 0;
+  unsigned dropped = 0;
+  unsigned corrupt = 0;
   struct timeval transmit_time;
   double total_latency = 0;
-  int timer_fd;
+  int timeout_timer_fd;
+  int transmit_timer_fd;
+  int idle_timer_fd;
   struct epoll_event timer_event;
   int opt;
+  char* device_name;
 
   if (argc < 2) {
     printf("Usage: %s [-v] /dev/serial-device\n", argv[0]);
     return 0;
   }
 
-  while ((opt = getopt(argc, argv, "nt:")) != -1) {
+  while ((opt = getopt(argc, argv, "vd:")) != -1) {
     switch (opt) {
     case 'v':
       gDebug = 1;
+      break;
+    case 'd':
+      device_name = malloc(strlen(optarg) + 1);
+      strncpy(device_name, optarg, strlen(optarg) + 1);
       break;
     default:
       fprintf(stderr, "Usage: %s [-v] /dev/serial-device\n", argv[0]);
@@ -98,7 +130,7 @@ int main(int argc,char** argv)
   tio.c_cc[VMIN] = 1;
   tio.c_cc[VTIME] = 5;
 
-  tty_fd = open(argv[1], O_RDWR | O_NONBLOCK);
+  tty_fd = open(device_name, O_RDWR | O_NONBLOCK);
   if (tty_fd == -1) {
     fprintf(stderr, "Could not open serial device %s\n", argv[1]);
   }
@@ -115,15 +147,18 @@ int main(int argc,char** argv)
     return 1;
   }
 
-  timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
+  timeout_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK);
   timer_event.events = EPOLLIN;
-  timer_event.data.fd = timer_fd;
-  if (epoll_ctl(epfd, EPOLL_CTL_ADD, timer_fd, &timer_event)) {
-    fprintf(stderr, "Could not add timer_fd to epoll: %s\n", strerror(errno));
+  timer_event.data.fd = timeout_timer_fd;
+  if (epoll_ctl(epfd, EPOLL_CTL_ADD, timeout_timer_fd, &timer_event)) {
+    fprintf(
+        stderr,
+        "Could not add timeout_timer_fd to epoll: %s\n",
+        strerror(errno));
     return 1;
   }
 
-  marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
+  marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
   while (epoll_wait(epfd, &event, 1, -1) == 1) {
     if (event.events & EPOLLIN && event.data.fd == tty_fd) {
       struct timeval receive_time;
@@ -136,38 +171,29 @@ int main(int argc,char** argv)
         if (read_buffer[1] == marco_sum) {
           struct timeval elapsed_time;
           float elapsed;
+          success++;
+
           timersub(&receive_time, &transmit_time, &elapsed_time);
           elapsed = (float)elapsed_time.tv_sec * 1000. +
                     (float)elapsed_time.tv_usec / 1000.;
-
           total_latency += elapsed;
-          success++;
-          printf(
-              "Success! "
-              "%.2f%% success rate (%d / %d), "
-              "avg. latency %.2fms\n",
-              (float)success / (float)sent * 100.,
-              success,
-              sent,
-              total_latency / (float)success);
 
+          debug("Success! %.4fms elapsed.\n", elapsed);
+          print_stats(success, dropped, corrupt, total_latency);
         } else {
-          printf(
-              "Incorrect sum. "
-              "%.2f%% success rate (%d / %d), "
-              "avg. latency %.2fms\n",
-              (float)success / (float)sent * 100.,
-              success,
-              sent,
-              total_latency / (float)success);
+          corrupt++;
+
+          debug("Corrupt.\n");
+          print_stats(success, dropped, corrupt, total_latency);
         }
         usleep(gTransmitDelayMS * 1000);
-        marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
-        sent++;
+        marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
       }
-    } else if (event.events & EPOLLIN && event.data.fd == timer_fd) {
+    } else if (event.events & EPOLLIN && event.data.fd == timeout_timer_fd) {
       uint64_t expirations;
-      int r = read(timer_fd, &expirations, sizeof(expirations));
+      int r = read(timeout_timer_fd, &expirations, sizeof(expirations));
+      dropped++;
+
       if (r != sizeof(expirations)) {
         fprintf(stderr, "Unexpected number of bytes from timerfd: %d.\n", r);
         return 1;
@@ -176,16 +202,10 @@ int main(int argc,char** argv)
         return 1;
       }
 
-      printf("Timeout, resending. "
-             "%.2f%% success rate (%d / %d), "
-             "avg. latency %.2fms\n",
-             (float)success / (float)sent * 100.,
-             success,
-             sent,
-             total_latency / (float)success);
+      debug("Timeout.\n");
+      print_stats(success, dropped, corrupt, total_latency);
       usleep(gTransmitDelayMS * 1000);
-      marco_sum = transmit_marco(tty_fd, &transmit_time, timer_fd);
-      sent++;
+      marco_sum = transmit_marco(tty_fd, &transmit_time, timeout_timer_fd);
     } else {
       fprintf(stderr, "Unknown epoll FD: %d\n", event.data.fd);
     }
