@@ -16,6 +16,7 @@ int gResponseTimeoutMS = 300;
 int gTransmitDelayMS = 1000;
 int gIdleDelayMS = 2;
 bool gDebug = false;
+int gPayloadSize = 2;
 
 void debug(const char *fmt, ...)
 {
@@ -75,22 +76,25 @@ unsigned char transmit_marco(
     int tty_fd,
     struct timeval* transmit_time,
     int timerfd) {
-  unsigned char marco_str[] = "S__E";
-  unsigned char a = (unsigned char)rand();
-  unsigned char b = (unsigned char)rand();
-  unsigned char sum = a + b;
+  unsigned char marco_str[10];
+  int i;
+  unsigned char sum = 0;
 
-  marco_str[1] = a;
-  marco_str[2] = b;
+  marco_str[0] = 'S';
+  marco_str[gPayloadSize + 1] = 'E';
+  for (i = 1; i <= gPayloadSize; i++) {
+    marco_str[i] = (unsigned char)rand();
+    sum += marco_str[i];
+  }
 
-  write(tty_fd, marco_str, 4);
+  write(tty_fd, marco_str, gPayloadSize + 2);
   if (transmit_time != NULL)
     gettimeofday(transmit_time, NULL);
   set_timerfd(timerfd, gResponseTimeoutMS);
 
-  debug("Transmitted %d + %d = %d.\n", a, b, sum);
+  debug("Transmitted sum = %d.\n", sum);
 
-  return marco_str[1] + marco_str[2];
+  return sum;
 }
 
 void schedule_transmit(int fd) {
@@ -141,7 +145,7 @@ int main(int argc,char** argv)
     return 0;
   }
 
-  while ((opt = getopt(argc, argv, "vs:i:t:d:c:")) != -1) {
+  while ((opt = getopt(argc, argv, "vs:i:t:d:c:p:")) != -1) {
     int intval;
 
     switch (opt) {
@@ -172,6 +176,13 @@ int main(int argc,char** argv)
       if (intval != 0)
         count = intval;
       break;
+    case 'p':
+      intval = atoi(optarg);
+      if (intval >= 2 && intval <= 8)
+        gPayloadSize = intval;
+      else
+        fprintf(stderr, "Payload size must be between 2 and 8.\n");
+      break;
     default:
       fprintf(stderr, "Usage: %s [-v] /dev/serial-device\n", argv[0]);
       return 1;
@@ -180,6 +191,7 @@ int main(int argc,char** argv)
 
   printf("Device: %s\n", device_name);
   printf("Count: %d\n", count);
+  printf("Payload Size: %d\n", gPayloadSize);
   printf("Debug: %s\n", (gDebug ? "true" : "false"));
   printf("Delay: %dms\n", gTransmitDelayMS);
   printf("Idle: %dms\n", gIdleDelayMS);

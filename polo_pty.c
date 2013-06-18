@@ -15,7 +15,7 @@ int main(int argc,char** argv)
   int tty_fd;
   int tty_child_fd;
   char tty_name[64] = {0};
-  unsigned char read_buffer[4] = {0};
+  unsigned char read_buffer[10] = {0};
   int epfd;
   struct epoll_event tio_event;
   struct epoll_event event;
@@ -49,31 +49,37 @@ int main(int argc,char** argv)
 
   while (epoll_wait(epfd, &event, 1, -1) == 1) {
     if (event.events & EPOLLIN && event.data.fd == tty_fd) {
-      memmove(read_buffer, read_buffer + 1, sizeof(read_buffer) - 1);
-      read(tty_fd, read_buffer + sizeof(read_buffer) - 1, 1);
-      if (read_buffer[0] == 'S' && read_buffer[3] == 'E') {
-        unsigned char a = read_buffer[1];
-        unsigned char b = read_buffer[2];
-        unsigned char sum = a + b;
-        useconds_t delay = (float)(rand() % 100);  // ms
-        usleep(delay * 1000);
-        printf("Received %d + %d = %d.\n", a, b, sum);
-
-        if ((float)(rand() % 100) <= success_rate) {
-          // Success
-          polo_str[1] = sum;
-          write(tty_fd, polo_str, 3);
-          printf("Delayed %dms\n", delay);
-        } else {
-          // Failure, pick whether to transmit a bad response or no response.
-          if (rand() % 2) {
-            // Respond with invalid bits
-            printf("Sending back corrupted data.\n");
-            polo_str[1] = sum + 1;
-            write(tty_fd, polo_str, 3);
+      memmove(read_buffer + 1, read_buffer, sizeof(read_buffer) - 1);
+      read(tty_fd, read_buffer, 1);
+      if (read_buffer[0] == 'E') {
+        int i;
+        unsigned char sum = 0;
+        for (i = 1; i < sizeof(read_buffer); i++) {
+          if (read_buffer[i] != 'S') {
+            sum += read_buffer[i];
           } else {
-            // No response.
-            printf("Not responding.\n");
+            useconds_t delay = (float)(rand() % 100);  // ms
+            usleep(delay * 1000);
+            printf("Received sum = %d.\n", sum);
+
+            if ((float)(rand() % 100) <= success_rate) {
+              // Success
+              polo_str[1] = sum;
+              write(tty_fd, polo_str, 3);
+              printf("Success, delayed %dms\n", delay);
+            } else {
+              // Failure, pick whether to transmit a bad response or no response.
+              if (rand() % 2) {
+                // Respond with invalid bits
+                printf("Sending back corrupted data.\n");
+                polo_str[1] = sum + 1;
+                write(tty_fd, polo_str, 3);
+              } else {
+                // No response.
+                printf("Not responding.\n");
+              }
+            }
+            break;
           }
         }
       }

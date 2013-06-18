@@ -35,6 +35,7 @@ Usage:
   [-i idle_delay_ms=2]
   [-d transmit_delay_ms=1000]
   [-c count=100]
+  [-p payload_size=2]
   -s /dev/serial-device
 ```
 
@@ -67,15 +68,15 @@ Outputs the terminal device to be used with marco on startup.
 ```
 jeady@olympus:/mnt/hgfs/shared/marco_polo$ ./polo_pty 
 PTY: /dev/pts/13
-Received 173 + 127 = 44.
+Received sum = 44.
 Not responding.
-Received 82 + 8 = 90.
-Delayed 90ms
-Received 166 + 188 = 98.
+Received sum = 90.
+Success, delayed 90ms
+Received sum = 98.
 Not responding.
-Received 182 + 180 = 106.
+Received sum = 106.
 Sending back corrupted data.
-Received 103 + 245 = 92.
+Received sum = 92.
 Sending back corrupted data.
 ```
 
