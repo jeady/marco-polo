@@ -218,7 +218,7 @@ int main(int argc,char** argv)
   tcsetattr(tty_fd, TCSANOW, &tio);
 
   epfd = epoll_create(1);
-  tio_event.events = EPOLLIN | EPOLLHUP | EPOLLERR;
+  tio_event.events = EPOLLIN | EPOLLHUP | EPOLLERR | EPOLLPRI;
   tio_event.data.fd = tty_fd;
   if (epoll_ctl(epfd, EPOLL_CTL_ADD, tty_fd, &tio_event)) {
     fprintf(stderr, "Could not add tio to epoll: %s\n", strerror(errno));
@@ -234,7 +234,7 @@ int main(int argc,char** argv)
     if (success + dropped + corrupt >= count)
       break;
 
-    if (event.events & EPOLLIN && event.data.fd == tty_fd) {
+    if (event.events & (EPOLLIN | EPOLLPRI) && event.data.fd == tty_fd) {
       struct timeval receive_time;
       gettimeofday(&receive_time, NULL);
 
